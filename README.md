@@ -46,66 +46,74 @@ A full end-to-end validation suite (22 checks) verifies the pipeline health afte
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Kind Kubernetes Cluster                         │
-│                        (fraud-detection namespace)                      │
-│                                                                         │
-│  ┌─────────────────┐                                                    │
-│  │ Transaction     │  20 TPS · 200 accounts · 2% fraud rate            │
-│  │ Producer        │──────────────────────────────────────┐             │
-│  └─────────────────┘                                      ▼             │
-│                                                 ┌──────────────────┐    │
-│                                                 │ Kafka            │    │
-│                                                 │ raw-transactions │    │
-│                                                 └────────┬─────────┘    │
-│                                                          │              │
-│                                                          ▼              │
-│                                        ┌─────────────────────────────┐ │
-│                                        │     Apache Flink 1.18       │ │
-│                                        │                             │ │
-│                                        │  KafkaSource                │ │
-│                                        │    → WatermarkStrategy      │ │
-│                                        │    → keyBy(account_id)      │ │
-│                                        │    → FraudDetector (stateful│ │
-│                                        │      RocksDB, per-account)  │ │
-│                                        │    → ParseScoredJson        │ │
-│                                        │                             │ │
-│                                        │  StatementSet (3 SQL sinks) │ │
-│                                        └────────────┬────────────────┘ │
-│                                                     │                  │
-│                      ┌──────────────────────────────┼────────────┐     │
-│                      │                              │            │     │
-│                      ▼                              ▼            ▼     │
-│            ┌──────────────────┐  ┌─────────────────────┐  ┌──────────┐│
-│            │ Kafka            │  │ Kafka               │  │ Iceberg  ││
-│            │ enriched-        │  │ fraud-alerts        │  │ REST     ││
-│            │ transactions     │  │ (fraud only)        │  │ Catalog  ││
-│            │ (all records)    │  │                     │  └────┬─────┘│
-│            └──────────────────┘  └─────────────────────┘       │      │
-│                                                                  ▼      │
-│                                                        ┌───────────────┐│
-│                                                        │ MinIO (S3)    ││
-│                                                        │ fraud-        ││
-│                                                        │ warehouse     ││
-│                                                        └───────┬───────┘│
-│                                                                │        │
-│                                                                ▼        │
-│                                                        ┌───────────────┐│
-│                                                        │ Trino SQL     ││
-│                                                        │               ││
-│                                                        │ SELECT * FROM ││
-│                                                        │ iceberg.fraud ││
-│                                                        │ _db.fraud_    ││
-│                                                        │ scores WHERE  ││
-│                                                        │ fraud_detected││
-│                                                        └───────────────┘│
-│                                                                         │
-│  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │                    Observability Stack                             │ │
-│  │   Prometheus (metrics scraping)  ·  Grafana (dashboards)          │ │
-│  │   Kafka UI  ·  Flink Web UI  ·  MinIO Console                     │ │
-│  └────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Kind Kubernetes Cluster                             │
+│                         (fraud-detection namespace)                          │
+│                                                                              │
+│  ┌──────────────────┐                                                        │
+│  │  Transaction     │  20 TPS · 200 accounts · 2% base fraud rate           │
+│  │  Producer        │─────────────────────────────────────────┐             │
+│  │  (producer/)     │                                         │             │
+│  └──────────────────┘                                         ▼             │
+│                                                    ┌─────────────────────┐  │
+│                                                    │ Kafka               │  │
+│                                                    │ [raw-transactions]  │  │
+│                                                    └──────────┬──────────┘  │
+│                                                               │             │
+│                                                               ▼             │
+│                                           ┌──────────────────────────────┐  │
+│                                           │      Apache Flink 1.18       │  │
+│                                           │   (JobManager + TaskManager) │  │
+│                                           │                              │  │
+│                                           │  KafkaSource                 │  │
+│                                           │   → WatermarkStrategy        │  │
+│                                           │   → keyBy(account_id)        │  │
+│                                           │   → FraudDetector            │  │
+│                                           │     (stateful, RocksDB)      │  │
+│                                           │   → ParseScoredJson          │  │
+│                                           │   → fraud_input_view         │  │
+│                                           │                              │  │
+│                                           │   StatementSet.execute()     │  │
+│                                           └───┬──────────────┬───────────┘  │
+│                  ┌────────────────────────────┤              │              │
+│                  │                            │              │              │
+│                  ▼                            ▼              ▼              │
+│  ┌───────────────────────┐  ┌────────────────────┐  ┌───────────────────┐  │
+│  │ Kafka                 │  │ Kafka              │  │ Iceberg REST      │  │
+│  │ [enriched-            │  │ [fraud-alerts]     │  │ Catalog           │  │
+│  │  transactions]        │  │ fraud only         │  │ (tabulario/       │  │
+│  │ all records           │  │ (AT_LEAST_ONCE)    │  │  iceberg-rest)    │  │
+│  │ (AT_LEAST_ONCE)       │  └────────────────────┘  └────────┬──────────┘  │
+│  └───────────────────────┘                                   │ S3FileIO    │
+│                                                               ▼             │
+│                                                    ┌─────────────────────┐  │
+│                                                    │ MinIO               │  │
+│                                                    │ (S3-compatible)     │  │
+│                                                    │                     │  │
+│                                                    │ fraud-warehouse/    │  │
+│                                                    │  iceberg/           │  │
+│                                                    │   fraud_db/         │  │
+│                                                    │    fraud_scores/    │  │
+│                                                    │                     │  │
+│                                                    │ fraud-checkpoints/  │  │
+│                                                    │  flink/ (RocksDB)   │  │
+│                                                    └──────────┬──────────┘  │
+│                                                               │             │
+│                                                               ▼             │
+│                                                    ┌─────────────────────┐  │
+│                                                    │ Trino               │  │
+│                                                    │ (Iceberg connector) │  │
+│                                                    │                     │  │
+│                                                    │ SELECT * FROM       │  │
+│                                                    │  iceberg.fraud_db   │  │
+│                                                    │  .fraud_scores      │  │
+│                                                    └─────────────────────┘  │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                       Observability Stack                            │   │
+│  │  Prometheus · Grafana · Kafka UI · Schema Registry · MinIO Console  │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -205,10 +213,10 @@ The `startup.sh` orchestrator runs 11 steps with automatic completion detection.
 
 ```
 fraud-detection-pipeline/
-├── startup.sh                        # One-command orchestrator (11 steps)
-├── cleanup.sh                        # Cleanup: --mode light or --mode full
+├── startup.sh                        # One-command orchestrator (11 steps, idempotent)
+├── cleanup.sh                        # Teardown: --mode light or --mode full
 │
-├── scripts/
+├── scripts/                          # One script per deployment step
 │   ├── step-01-install-prerequisites.sh
 │   ├── step-02-preflight-checks.sh
 │   ├── step-03-create-cluster.sh
@@ -216,30 +224,43 @@ fraud-detection-pipeline/
 │   ├── step-05-deploy-minio.sh
 │   ├── step-06-deploy-kafka.sh
 │   ├── step-07-build-images.sh
-│   ├── step-08-deploy-flink.sh       # Bucket pre-creation, STABLE wait, REST API verification
+│   ├── step-08-deploy-flink.sh
 │   ├── step-09-deploy-producer.sh
 │   ├── step-10-deploy-monitoring.sh
-│   └── step-11-e2e-validate.sh       # 22-check validation suite with live fraud injection
+│   └── step-11-e2e-validate.sh       # 22-check live validation suite
 │
-├── flink-jobs/
-│   ├── Dockerfile                    # PyFlink + Iceberg AWS bundle + Hadoop S3A
-│   ├── fraud_job.py                  # Main pipeline: KafkaSource → FraudDetector → 3 SQL sinks
-│   ├── fraud_detector.py             # Stateful KeyedProcessFunction (per-account fraud logic)
+├── flink-jobs/                       # PyFlink image (fraud-detection/flink-jobs:latest)
+│   ├── Dockerfile                    # Flink 1.18 + PyFlink + Iceberg AWS bundle + S3A
+│   ├── fraud_job.py                  # Main pipeline: KafkaSource → 3 SQL sinks via StatementSet
+│   ├── fraud_detector.py             # Stateful KeyedProcessFunction (per-account, RocksDB)
 │   ├── models.py                     # Transaction / FraudScore data models
-│   └── core-site.xml                 # Hadoop S3A config (bundled into image)
+│   └── core-site.xml                 # Hadoop S3A config (bundled into image as JAR)
 │
-└── k8s/
-    ├── flink-deployment.yaml         # FlinkDeployment CRD
-    ├── iceberg-rest-catalog.yaml     # REST catalog Deployment + Service (CATALOG_* env vars)
-    ├── kafka-cluster.yaml            # Strimzi KafkaNodePool + Kafka CRD
-    ├── kafka-topics.yaml             # Topic definitions (raw-transactions, enriched-*, fraud-alerts, dead-letter)
-    ├── minio-tenant.yaml             # MinIO Tenant CRD
-    ├── producer-deployment.yaml      # Transaction producer Deployment
-    ├── schema-registry.yaml
-    ├── trino.yaml                    # Trino with Iceberg REST catalog connector
-    └── monitoring/
-        ├── prometheus.yaml
-        └── grafana.yaml
+├── producer/                         # Transaction generator image (fraud-detection/producer:latest)
+│   ├── Dockerfile
+│   ├── producer.py                   # Kafka producer entrypoint (20 TPS, 200 accounts)
+│   ├── generator.py                  # Synthetic transaction generator + fraud pattern injection
+│   ├── models.py                     # Shared transaction schema
+│   └── requirements.txt
+│
+└── k8s/                              # Kubernetes manifests, grouped by deployment step
+    ├── 00-cluster/
+    │   ├── kind-config.yaml          # 3-node kind cluster definition (1 control-plane + 2 workers)
+    │   └── namespace.yaml            # Namespace + ServiceAccount + ClusterRole + RBAC + ConfigMap + Secret
+    ├── 02-minio/
+    │   └── minio-tenant.yaml         # MinIO Tenant CRD + credentials Secret + NodePort Service
+    ├── 03-kafka/
+    │   ├── kafka-cluster.yaml        # Strimzi KafkaNodePool + Kafka CRD (KRaft mode, no ZooKeeper)
+    │   └── kafka-topics.yaml         # 5× KafkaTopic + Schema Registry Deployment/Service + Kafka UI Deployment/Service
+    ├── 04-flink/
+    │   ├── flink-deployment.yaml     # FlinkDeployment CRD + NodePort Service
+    │   └── iceberg-rest-catalog.yaml # REST catalog Deployment + Service (CATALOG_* env vars, no ConfigFile)
+    ├── 05-producer/
+    │   └── producer-deployment.yaml  # Transaction producer Deployment
+    ├── 06-monitoring/
+    │   └── monitoring.yaml           # Prometheus + Grafana Deployments, Services, ConfigMaps, RBAC
+    └── 07-trino/
+        └── trino.yaml                # Trino Deployment + Service + catalog ConfigMap (Iceberg REST connector)
 ```
 
 ---
