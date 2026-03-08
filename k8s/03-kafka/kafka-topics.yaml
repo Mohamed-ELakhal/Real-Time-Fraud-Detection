@@ -1,0 +1,204 @@
+---
+# raw-transactions
+# All incoming card transactions from the producer.
+# Partitioned by account_id (6 partitions) so each Flink task
+# gets a consistent slice of accounts and state is always local.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: raw-transactions
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms:       "604800000"   # 7 days
+    compression.type:   lz4
+    max.message.bytes:  "1000000"     # 1MB max per message
+    cleanup.policy:     delete
+    min.insync.replicas: "1"
+
+---
+# enriched-transactions
+# Output of Flink scoring — all transactions with risk_score attached.
+# Fed into Iceberg and analytics dashboards.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: enriched-transactions
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms:     "604800000"   # 7 days
+    compression.type: lz4
+
+---
+# fraud-alerts
+# Only fraud-detected transactions (risk_score >= 0.5).
+# Used by downstream alerting, card-blocking, and case management.
+# Longer retention for audit trail.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fraud-alerts
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms:     "2592000000"  # 30 days
+    compression.type: lz4
+    min.insync.replicas: "1"
+
+---
+# dead-letter
+# Messages that failed delivery after retries land here
+# for investigation and potential replay.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dead-letter
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    retention.ms:     "604800000"   # 7 days
+
+---
+# model-feedback
+# Confirmed fraud labels from manual review / chargebacks
+# fed back for model retraining.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: model-feedback
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+spec:
+  partitions: 2
+  replicas: 1
+  config:
+    retention.ms: "2592000000"  # 30 days
+
+---
+# Schema Registry — deployed as a plain Kubernetes Deployment
+# (Strimzi does not manage Schema Registry; we deploy it ourselves)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: fraud-detection
+  labels:
+    app: schema-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schema-registry
+  template:
+    metadata:
+      labels:
+        app: schema-registry
+    spec:
+      enableServiceLinks: false   # Prevent K8s from injecting SCHEMA_REGISTRY_PORT etc. into the pod
+      containers:
+        - name: schema-registry
+          image: confluentinc/cp-schema-registry:7.5.3
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SCHEMA_REGISTRY_HOST_NAME
+              value: schema-registry
+            - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+              value: fraud-kafka-kafka-bootstrap.fraud-detection:9092
+            - name: SCHEMA_REGISTRY_LISTENERS
+              value: http://0.0.0.0:8081
+          readinessProbe:
+            httpGet:
+              path: /subjects
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu:    "250m"
+            limits:
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: fraud-detection
+spec:
+  # NodePort so localhost:8081 works via kind's containerPort 30081 → hostPort 8081 mapping
+  type: NodePort
+  selector:
+    app: schema-registry
+  ports:
+    - port:       8081
+      targetPort: 8081
+      nodePort:   30081
+
+---
+# Kafka UI — browse topics, messages, consumer groups visually
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: fraud-detection
+  labels:
+    app: kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      containers:
+        - name: kafka-ui
+          image: provectuslabs/kafka-ui:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: fraud-cluster
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: fraud-kafka-kafka-bootstrap.fraud-detection:9092
+            - name: KAFKA_CLUSTERS_0_SCHEMAREGISTRY
+              value: http://schema-registry.fraud-detection:8081
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: fraud-detection
+spec:
+  type: NodePort
+  selector:
+    app: kafka-ui
+  ports:
+    - port:       8080
+      targetPort: 8080
+      nodePort:   30080

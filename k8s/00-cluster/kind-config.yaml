@@ -1,0 +1,125 @@
+# ============================================================
+#  kind-config.yaml — Local dev cluster (memory-optimised)
+#  Path: k8s/00-cluster/kind-config.yaml
+#
+#  NODE COUNT CHANGE: 4 → 3  (1 control-plane + 2 workers)
+#
+#  Why: A 4-node kind cluster on a 16 GB laptop with WSL2 left no
+#  headroom for the host OS. Each extra kind node is a Docker container
+#  running containerd + kubelet + kube-proxy, consuming ~300-500 MB of
+#  RAM before any application workloads schedule onto it.
+#  Removing one worker saves ~400 MB and — more importantly — reduces
+#  the number of containerd instances that need to import images during
+#  `kind load`, which was the direct cause of the image-loading hang.
+#
+#  WORKLOAD LABELS: Both workers carry ALL workload labels
+#  (flink, storage, kafka). With only 2 workers it is counter-productive
+#  to pin workloads to specific nodes — if one node fills up the other
+#  must be able to accept overflow. Kubernetes will still spread pods
+#  naturally via its binpacking algorithm.
+# ============================================================
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+nodes:
+  # ── Control Plane ──────────────────────────────────────────────
+  # Hosts only Kubernetes system components (etcd, apiserver,
+  # controller-manager, scheduler, coredns). No application pods.
+  # NodePort mappings live here so localhost:<port> works from Windows.
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            # Reduce kubelet housekeeping interval to lower CPU overhead
+            # on the control-plane when the cluster is otherwise idle.
+            node-status-update-frequency: "10s"
+    extraPortMappings:
+      # Kafka UI
+      - containerPort: 30080
+        hostPort:      8080
+        protocol:      TCP
+      # Schema Registry
+      - containerPort: 30081
+        hostPort:      8081
+        protocol:      TCP
+      # Flink Web UI
+      - containerPort: 30082
+        hostPort:      8082
+        protocol:      TCP
+      # Trino
+      - containerPort: 30083
+        hostPort:      8083
+        protocol:      TCP
+      # MinIO S3 API
+      - containerPort: 30000
+        hostPort:      9000
+        protocol:      TCP
+      # MinIO Console
+      - containerPort: 30001
+        hostPort:      9001
+        protocol:      TCP
+      # Prometheus
+      - containerPort: 30090
+        hostPort:      9090
+        protocol:      TCP
+      # Grafana
+      - containerPort: 30030
+        hostPort:      3000
+        protocol:      TCP
+      # Kafka external bootstrap
+      - containerPort: 30092
+        hostPort:      9092
+        protocol:      TCP
+      # Individual Kafka broker NodePorts (for external clients)
+      - containerPort: 30093
+        hostPort:      30093
+        protocol:      TCP
+      - containerPort: 30094
+        hostPort:      30094
+        protocol:      TCP
+      - containerPort: 30095
+        hostPort:      30095
+        protocol:      TCP
+
+  # ── Worker 1 ───────────────────────────────────────────────────
+  # Primary application worker — Kafka, Flink, and producer pods
+  # will spread across worker-1 and worker-2 based on available
+  # resources. Both workers carry all labels so the scheduler has
+  # full freedom with only 2 nodes available.
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "workload=flink,workload-storage=true,workload-kafka=true"
+            # Tighten eviction thresholds so pods are evicted earlier
+            # rather than letting the node become fully memory-starved.
+            eviction-hard: "memory.available<200Mi,nodefs.available<5%"
+            eviction-soft: "memory.available<300Mi,nodefs.available<10%"
+            eviction-soft-grace-period: "memory.available=30s,nodefs.available=30s"
+
+  # ── Worker 2 ───────────────────────────────────────────────────
+  # Secondary application worker. Carries the same labels as worker-1.
+  # MinIO, monitoring (Prometheus/Grafana), and overflow pods land here.
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "workload=storage,workload-flink=true,workload-kafka=true"
+            eviction-hard: "memory.available<200Mi,nodefs.available<5%"
+            eviction-soft: "memory.available<300Mi,nodefs.available<10%"
+            eviction-soft-grace-period: "memory.available=30s,nodefs.available=30s"
+
+# ── Networking ─────────────────────────────────────────────────
+networking:
+  # Disable the default CNI so kind installs kindnet (lighter than Calico).
+  disableDefaultCNI: false
+  # Pod CIDR — default is fine; listed explicitly for documentation.
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"

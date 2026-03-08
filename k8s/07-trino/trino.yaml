@@ -1,0 +1,145 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-catalog-config
+  namespace: fraud-detection
+  labels:
+    app: trino
+data:
+  node.properties: |
+    node.environment=production
+    node.id=trino-coordinator
+    node.data-dir=/data/trino
+
+  jvm.config: |
+    -server
+    -Xmx1536m
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -Djdk.attach.allowAttachSelf=true
+
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=true
+    http-server.http.port=8080
+    query.max-memory=1GB
+    query.max-memory-per-node=512MB
+    discovery.uri=http://localhost:8080
+
+  log.properties: |
+    io.trino=INFO
+
+  # Trino 435 Iceberg connector — REST catalog type.
+  #
+  # WHY REST CATALOG:
+  #   Trino 435 does not support iceberg.catalog.type=hadoop.
+  #   Valid types: hive_metastore, rest, jdbc, nessie, glue.
+  #   The REST catalog (iceberg-rest-catalog service) is the shared
+  #   catalog for both Flink and Trino. Flink writes tables via REST,
+  #   Trino queries them via REST — same catalog, same metadata.
+  #
+  # iceberg.rest-catalog.warehouse must match the warehouse configured
+  # in the REST catalog server (s3://fraud-warehouse/iceberg).
+  # fs.native-s3.enabled=true uses Trino's built-in S3 client (no Hadoop).
+  iceberg.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://iceberg-rest-catalog.fraud-detection:8181
+    iceberg.rest-catalog.warehouse=s3://fraud-warehouse/iceberg
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio-nodeport.fraud-detection:9000
+    s3.region=us-east-1
+    s3.aws-access-key=admin
+    s3.aws-secret-key=password123
+    s3.path-style-access=true
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino
+  namespace: fraud-detection
+  labels:
+    app: trino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trino
+  template:
+    metadata:
+      labels:
+        app: trino
+    spec:
+      containers:
+        - name: trino
+          image: trinodb/trino:435
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu:    "500m"
+            limits:
+              memory: "2Gi"
+              cpu:    "1000m"
+          volumeMounts:
+            - name: trino-config
+              mountPath: /etc/trino/node.properties
+              subPath: node.properties
+            - name: trino-config
+              mountPath: /etc/trino/jvm.config
+              subPath: jvm.config
+            - name: trino-config
+              mountPath: /etc/trino/config.properties
+              subPath: config.properties
+            - name: trino-config
+              mountPath: /etc/trino/log.properties
+              subPath: log.properties
+            - name: trino-config
+              mountPath: /etc/trino/catalog/iceberg.properties
+              subPath: iceberg.properties
+          readinessProbe:
+            httpGet:
+              path: /v1/info
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: trino-config
+          configMap:
+            name: trino-catalog-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+  namespace: fraud-detection
+  labels:
+    app: trino
+spec:
+  type: NodePort
+  selector:
+    app: trino
+  ports:
+    - name: http
+      port:       8080
+      targetPort: 8080
+      nodePort:   30083
+      protocol:   TCP

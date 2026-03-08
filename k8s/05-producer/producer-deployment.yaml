@@ -1,0 +1,98 @@
+---
+# Transaction Producer Deployment
+# Runs the Python transaction generator and publishes to Kafka.
+# Restarts automatically if it crashes (policy: Always).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-producer
+  namespace: fraud-detection
+  labels:
+    app: transaction-producer
+    app.kubernetes.io/part-of: fraud-detection
+    app.kubernetes.io/component: producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-producer
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: transaction-producer
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      restartPolicy: Always
+
+      # Wait for Kafka to be ready before starting
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka bootstrap..."
+              until nc -z fraud-kafka-kafka-bootstrap.fraud-detection 9092; do
+                echo "Kafka not ready yet, retrying in 5s..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+
+      containers:
+        - name: producer
+          image: fraud-detection/producer:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - producer.py
+            - --brokers
+            - fraud-kafka-kafka-bootstrap.fraud-detection:9092
+            - --tps
+            - "20"
+            - --accounts
+            - "200"
+            - --fraud-rate
+            - "0.02"
+
+          envFrom:
+            - configMapRef:
+                name: fraud-detection-config
+
+          # FIX: original probe ran `python -c "import os; open('/tmp/alive')"`.
+          # open() without 'w' mode raises FileNotFoundError if the file doesn't
+          # exist — and nothing in the producer ever creates /tmp/alive — so the
+          # liveness probe always failed and K8s continuously restarted the pod.
+          #
+          # Fix: use pgrep to check that the producer.py process is alive.
+          # This is a real health signal: if the Python process dies (crash,
+          # OOM, unhandled exception), pgrep returns non-zero → K8s restarts.
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - -f
+                - "python producer.py"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "200m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+
+      # nodeSelector REMOVED: with only 2 worker nodes, letting k8s
+      # freely schedule the producer avoids it going Pending if the
+      # "storage" labelled node is already under memory pressure.
+      # The producer is lightweight (256 MB) and can run anywhere.

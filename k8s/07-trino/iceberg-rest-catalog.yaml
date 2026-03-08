@@ -1,0 +1,134 @@
+---
+# Iceberg REST Catalog — shared catalog service for Flink and Trino
+#
+# WHY THIS EXISTS
+# ═══════════════
+# Flink's HadoopCatalog stores Iceberg metadata directly in the filesystem
+# (MinIO). Trino 435 does NOT support iceberg.catalog.type=hadoop — valid
+# types are: hive_metastore, rest, jdbc, nessie, glue.
+#
+# The REST catalog (tabulario/iceberg-rest) solves this:
+#   • Implements the standard Iceberg REST catalog protocol (RFC)
+#   • Both Flink (iceberg-flink-runtime ≥1.4) and Trino 435 support it natively
+#   • No extra JARs required in either service
+#   • Stores catalog metadata in MinIO under the same warehouse path
+#   • Single source of truth — Flink writes, Trino reads the same tables
+#
+# CATALOG METADATA PATH
+# ═════════════════════
+#   Catalog metadata:  s3://fraud-warehouse/iceberg/  (managed by this server)
+#   Data files:        s3://fraud-warehouse/iceberg/fraud_db/fraud_scores/data/
+#
+# PORT
+# ════
+#   8181 (Iceberg REST catalog standard port)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-rest-catalog-config
+  namespace: fraud-detection
+  labels:
+    app: iceberg-rest-catalog
+    app.kubernetes.io/part-of: fraud-detection
+data:
+  # catalog.properties is read by tabulario/iceberg-rest at startup.
+  # Keys map directly to Iceberg catalog configuration properties.
+  # io-impl: use S3FileIO (not HadoopFileIO) — speaks native S3 API to MinIO.
+  # HadoopFileIO would require HADOOP_CONF_DIR / core-site.xml which we don't
+  # want to manage inside this service.
+  catalog.properties: |
+    warehouse=s3://fraud-warehouse/iceberg
+    io-impl=org.apache.iceberg.aws.s3.S3FileIO
+    s3.endpoint=http://minio-nodeport.fraud-detection:9000
+    s3.path-style-access=true
+    s3.access-key-id=admin
+    s3.secret-access-key=password123
+    s3.region=us-east-1
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-rest-catalog
+  namespace: fraud-detection
+  labels:
+    app: iceberg-rest-catalog
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iceberg-rest-catalog
+  template:
+    metadata:
+      labels:
+        app: iceberg-rest-catalog
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: iceberg-rest-catalog
+          image: tabulario/iceberg-rest:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: rest
+              containerPort: 8181
+          env:
+            # AWS env vars are read by the DefaultCredentialsProvider inside
+            # the REST catalog's S3FileIO even when catalog.properties also
+            # specifies them — belt-and-suspenders for AWS SDK credential chain.
+            - name: AWS_ACCESS_KEY_ID
+              value: "admin"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "password123"
+            - name: AWS_REGION
+              value: "us-east-1"
+            # Tell the REST server where to find its config file.
+            - name: CATALOG_CONFIG_FILE
+              value: "/etc/iceberg-rest/catalog.properties"
+          volumeMounts:
+            - name: catalog-config
+              mountPath: /etc/iceberg-rest
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /v1/config
+              port: 8181
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /v1/config
+              port: 8181
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+      volumes:
+        - name: catalog-config
+          configMap:
+            name: iceberg-rest-catalog-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-rest-catalog
+  namespace: fraud-detection
+  labels:
+    app: iceberg-rest-catalog
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  type: ClusterIP
+  selector:
+    app: iceberg-rest-catalog
+  ports:
+    - name: rest
+      port: 8181
+      targetPort: 8181
+      protocol: TCP

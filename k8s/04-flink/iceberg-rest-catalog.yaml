@@ -1,0 +1,148 @@
+---
+# Iceberg REST Catalog — shared catalog service for Flink and Trino
+#
+# WHY THIS EXISTS
+# ═══════════════
+# Flink's HadoopCatalog stores Iceberg metadata directly in the filesystem
+# (MinIO). Trino 435 does NOT support iceberg.catalog.type=hadoop — valid
+# types are: hive_metastore, rest, jdbc, nessie, glue.
+#
+# The REST catalog (tabulario/iceberg-rest) solves this:
+#   • Implements the standard Iceberg REST catalog protocol (RFC)
+#   • Both Flink (iceberg-flink-runtime ≥1.4) and Trino 435 support it natively
+#   • No extra JARs required in either service
+#   • Stores catalog metadata in MinIO under the same warehouse path
+#   • Single source of truth — Flink writes, Trino reads the same tables
+#
+# CATALOG METADATA PATH
+# ═════════════════════
+#   Catalog metadata:  s3://fraud-warehouse/iceberg/  (managed by this server)
+#   Data files:        s3://fraud-warehouse/iceberg/fraud_db/fraud_scores/data/
+#
+# PORT
+# ════
+#   8181 (Iceberg REST catalog standard port)
+# NOTE: ConfigMap removed.
+# tabulario/iceberg-rest does NOT support CATALOG_CONFIG_FILE.
+# All catalog properties are passed as CATALOG_* env vars in the Deployment.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-rest-catalog
+  namespace: fraud-detection
+  labels:
+    app: iceberg-rest-catalog
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iceberg-rest-catalog
+  template:
+    metadata:
+      labels:
+        app: iceberg-rest-catalog
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: iceberg-rest-catalog
+          image: tabulario/iceberg-rest:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: rest
+              containerPort: 8181
+          env:
+            # ── tabulario/iceberg-rest env var encoding ───────────────
+            # The image reads catalog properties from env vars prefixed
+            # with CATALOG_. Encoding rules (verified from image defaults):
+            #   '.' (dot)    → '_'  (single underscore)
+            #   '-' (hyphen) → '__' (double underscore)
+            #
+            # The image bakes in Dockerfile ENV defaults:
+            #   CATALOG_CATALOG__IMPL=JdbcCatalog
+            #   CATALOG_URI=jdbc:sqlite:file:/tmp/...
+            #   CATALOG_WAREHOUSE=/tmp/iceberg_warehouse...
+            # We MUST explicitly override ALL of these here — a mounted
+            # config file (CATALOG_CONFIG_FILE) is not supported by this image
+            # and is silently ignored.
+            # ─────────────────────────────────────────────────────────────
+
+            # Override default JdbcCatalog → keep it (in-memory SQLite is
+            # fine; fraud_job.py recreates the table on every restart via
+            # DROP TABLE IF EXISTS + CREATE TABLE IF NOT EXISTS)
+            # Critical: override the warehouse to S3 so ALL file I/O goes
+            # to MinIO, not the local /tmp directory.
+            - name: CATALOG_WAREHOUSE
+              value: "s3://fraud-warehouse/iceberg"
+
+            # io-impl: hyphen → double underscore → CATALOG_IO__IMPL
+            # S3FileIO speaks native S3 API — required for MinIO
+            - name: CATALOG_IO__IMPL
+              value: "org.apache.iceberg.aws.s3.S3FileIO"
+
+            # s3.endpoint: dot → single underscore → CATALOG_S3_ENDPOINT
+            - name: CATALOG_S3_ENDPOINT
+              value: "http://minio-nodeport.fraud-detection:9000"
+
+            # s3.path-style-access: dot+hyphen → _+__ → CATALOG_S3_PATH__STYLE__ACCESS
+            - name: CATALOG_S3_PATH__STYLE__ACCESS
+              value: "true"
+
+            # s3.access-key-id: dot+hyphen → _+__ → CATALOG_S3_ACCESS__KEY__ID
+            - name: CATALOG_S3_ACCESS__KEY__ID
+              value: "admin"
+
+            # s3.secret-access-key: dot+hyphen → _+__ → CATALOG_S3_SECRET__ACCESS__KEY
+            - name: CATALOG_S3_SECRET__ACCESS__KEY
+              value: "password123"
+
+            # AWS SDK credential chain also reads these standard env vars
+            # (belt-and-suspenders for SDK v1 + v2 credential providers)
+            - name: AWS_ACCESS_KEY_ID
+              value: "admin"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "password123"
+            - name: AWS_REGION
+              value: "us-east-1"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /v1/config
+              port: 8181
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /v1/config
+              port: 8181
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-rest-catalog
+  namespace: fraud-detection
+  labels:
+    app: iceberg-rest-catalog
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  type: ClusterIP
+  selector:
+    app: iceberg-rest-catalog
+  ports:
+    - name: rest
+      port: 8181
+      targetPort: 8181
+      protocol: TCP

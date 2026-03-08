@@ -1,0 +1,81 @@
+---
+# All fraud-detection workloads live in this namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fraud-detection
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    project: fraud-detection
+---
+# ServiceAccount for Flink jobs (needs to create/manage pods)
+# Helm ownership labels are set so the Flink operator Helm chart
+# can adopt this SA without conflicting on install.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flink
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name:      flink-kubernetes-operator
+    meta.helm.sh/release-namespace: fraud-detection
+---
+# ClusterRole — Flink operator needs to manage pods, configmaps, services
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flink-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "configmaps", "services", "endpoints", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["flink.apache.org"]
+    resources: ["flinkdeployments", "flinksessionjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flink-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flink-role
+subjects:
+  - kind: ServiceAccount
+    name: flink
+    namespace: fraud-detection
+---
+# Shared secrets — S3 / MinIO credentials used by Flink + Iceberg
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: fraud-detection
+type: Opaque
+stringData:
+  accessKey: "admin"
+  secretKey: "password123"
+---
+# ConfigMap: shared environment config referenced by multiple deployments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-detection-config
+  namespace: fraud-detection
+data:
+  KAFKA_BROKERS:           "fraud-kafka-kafka-bootstrap.fraud-detection:9092"
+  SCHEMA_REGISTRY_URL:     "http://schema-registry.fraud-detection:8081"
+  # minio-nodeport is our NodePort service with port 9000→9000 mapping.
+  # The operator-created 'minio' LoadBalancer runs on port 80, not 9000.
+  MINIO_ENDPOINT:          "http://minio-nodeport.fraud-detection:9000"
+  ICEBERG_WAREHOUSE:       "s3://fraud-warehouse/"
+  CHECKPOINT_DIR:          "s3://fraud-checkpoints/flink"
+  PARALLELISM:             "2"
+  CHECKPOINT_INTERVAL_MS:  "30000"
+  ALLOWED_LATENESS_S:      "10"

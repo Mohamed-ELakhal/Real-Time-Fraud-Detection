@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Hadoop S3A configuration for MinIO (in-cluster, plain HTTP).
+
+  HOW THIS FILE IS LOADED — CLASSPATH METHOD (primary, most reliable)
+  ====================================================================
+  Hadoop's Configuration static block registers "core-site.xml" as a
+  default resource and loads it via ClassLoader.getResource("core-site.xml"),
+  which searches every JAR on the Java classpath.
+
+  The Dockerfile bundles this file into hadoop-conf-bundle.jar placed in
+  /opt/flink/lib/. Since /opt/flink/lib/*.jar is the Flink classpath,
+  Hadoop finds core-site.xml automatically at JVM startup — before ANY
+  FileSystem.get() call. No HADOOP_CONF_DIR, no ConfigMap, no env var,
+  no operator interception, no timing dependency.
+
+  HOW THIS FILE IS LOADED — DIRECTORY METHOD (belt-and-suspenders)
+  ================================================================
+  env.hadoop.conf.dir=/opt/flink/hadoop-conf in flinkConfiguration tells
+  Flink's HadoopUtils to also check this directory. This file is COPY'd
+  to /opt/flink/hadoop-conf/ in the Dockerfile as a fallback.
+
+  WHY fs.s3a.impl.disable.cache=true IS CRITICAL
+  ===============================================
+  Hadoop's FileSystem.get(URI, Configuration) caches instances keyed by
+  (scheme, authority, ugi) — the Configuration is NOT part of the key.
+  If S3AFileSystem is instantiated once during Flink startup without
+  fs.s3a.endpoint set, the cached wrong-endpoint instance is returned
+  to HadoopCatalog even when catalog SQL passes correct hadoop.fs.s3a.*
+  properties. Setting disable.cache=true forces each FileSystem.get() to
+  create a fresh instance using the Configuration passed to it.
+-->
+<configuration>
+
+  <property>
+    <name>fs.s3a.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+  </property>
+
+  <!-- Disable FileSystem instance cache — prevents stale cached instances
+       with wrong endpoint/credentials being returned to HadoopCatalog. -->
+  <property>
+    <name>fs.s3a.impl.disable.cache</name>
+    <value>true</value>
+  </property>
+
+  <!-- MinIO S3 API endpoint (in-cluster NodePort service, plain HTTP) -->
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://minio-nodeport.fraud-detection:9000</value>
+  </property>
+
+  <!-- MinIO requires path-style: http://host/bucket/key -->
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+
+  <!-- Use simple key/secret — must be first so MinIO creds are used
+       before the chain falls through to IAM instance metadata. -->
+  <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+  </property>
+
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>admin</value>
+  </property>
+
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>password123</value>
+  </property>
+
+  <!-- MinIO in this cluster is plain HTTP -->
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+
+  <!-- Multi-part upload for large Iceberg data files -->
+  <property>
+    <name>fs.s3a.fast.upload</name>
+    <value>true</value>
+  </property>
+
+</configuration>

@@ -1,0 +1,155 @@
+---
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: fraud-scoring-job
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection
+    app.kubernetes.io/component: stream-processor
+spec:
+  image: fraud-detection/flink-jobs:latest
+  imagePullPolicy: IfNotPresent
+  flinkVersion: v1_18
+  flinkConfiguration:
+    parallelism.default: "1"
+    taskmanager.numberOfTaskSlots: "2"
+    state.backend: "rocksdb"
+    state.backend.incremental: "true"
+    state.checkpoints.dir: "s3://fraud-checkpoints/flink"
+    state.savepoints.dir: "s3://fraud-checkpoints/savepoints"
+    s3.endpoint: "http://minio-nodeport.fraud-detection:9000"
+    s3.access-key: "admin"
+    s3.secret-key: "password123"
+    s3.path.style.access: "true"
+    execution.checkpointing.interval: "30000"
+    execution.checkpointing.mode: "EXACTLY_ONCE"
+    execution.checkpointing.min-pause: "5000"
+    execution.checkpointing.timeout: "60000"
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    restart-strategy: "exponential-delay"
+    restart-strategy.exponential-delay.initial-backoff: "1 s"
+    restart-strategy.exponential-delay.backoff-multiplier: "2.0"
+    restart-strategy.exponential-delay.max-backoff: "1 min"
+    restart-strategy.exponential-delay.reset-backoff-threshold: "1 h"
+    restart-strategy.exponential-delay.jitter-factor: "0.1"
+    pipeline.watermark-alignment.allow-unaligned-source-splits: "true"
+    metrics.reporter.prom.factory.class: "org.apache.flink.metrics.prometheus.PrometheusReporterFactory"
+    metrics.reporter.prom.port: "9249"
+    rest.flamegraph.enabled: "true"
+    # env.hadoop.conf.dir — Flink config key read by HadoopUtils.getHadoopConfiguration().
+    # Points to the directory baked into the image containing core-site.xml.
+    # This is written into Flink's own managed ConfigMap, always ready at JVM start.
+    env.hadoop.conf.dir: "/opt/flink/hadoop-conf"
+  jobManager:
+    resource:
+      memory: "768m"
+      cpu: 0.25
+    replicas: 1
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            envFrom:
+              - configMapRef:
+                  name: fraud-detection-config
+              - secretRef:
+                  name: minio-credentials
+            env:
+              - name: KAFKA_BROKERS
+                value: "fraud-kafka-kafka-bootstrap.fraud-detection:9092"
+              - name: MINIO_ENDPOINT
+                value: "http://minio-nodeport.fraud-detection:9000"
+              - name: MINIO_ACCESS_KEY
+                value: "admin"
+              - name: MINIO_SECRET_KEY
+                value: "password123"
+              - name: CHECKPOINT_DIR
+                value: "s3://fraud-checkpoints/flink"
+              - name: ICEBERG_WAREHOUSE
+                value: "s3://fraud-warehouse/iceberg"
+              - name: ICEBERG_REST_CATALOG_URI
+                value: "http://iceberg-rest-catalog.fraud-detection:8181"
+              - name: PARALLELISM
+                value: "1"
+              # AWS env vars — S3A EnvironmentVariableCredentialsProvider fallback.
+              # HADOOP_CONF_DIR is intentionally absent from pod env: the operator
+              # intercepts it, overrides the path, and mounts an external ConfigMap,
+              # creating dependencies that caused FailedMount loops.
+              # S3A config is now loaded from hadoop-conf-bundle.jar on the classpath
+              # (classpath-resident core-site.xml, no env var or ConfigMap required).
+              - name: AWS_ACCESS_KEY_ID
+                value: "admin"
+              - name: AWS_SECRET_ACCESS_KEY
+                value: "password123"
+            resources:
+              requests:
+                memory: "768Mi"
+                cpu: "250m"
+              limits:
+                memory: "1Gi"
+                cpu: "1"
+  taskManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+    replicas: 1
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            envFrom:
+              - configMapRef:
+                  name: fraud-detection-config
+              - secretRef:
+                  name: minio-credentials
+            env:
+              - name: KAFKA_BROKERS
+                value: "fraud-kafka-kafka-bootstrap.fraud-detection:9092"
+              - name: MINIO_ENDPOINT
+                value: "http://minio-nodeport.fraud-detection:9000"
+              - name: MINIO_ACCESS_KEY
+                value: "admin"
+              - name: MINIO_SECRET_KEY
+                value: "password123"
+              - name: AWS_ACCESS_KEY_ID
+                value: "admin"
+              - name: AWS_SECRET_ACCESS_KEY
+                value: "password123"
+            resources:
+              requests:
+                memory: "1Gi"
+                cpu: "500m"
+              limits:
+                memory: "1536Mi"
+                cpu: "2"
+            ports:
+              - containerPort: 9249
+                name: prom-metrics
+  serviceAccount: flink
+  job:
+    entryClass: org.apache.flink.client.python.PythonDriver
+    args:
+      - "-py"
+      - "/opt/flink/jobs/fraud_job.py"
+      - "--pyFiles"
+      - "/opt/flink/jobs/fraud_detector.py"
+    parallelism: 1
+    upgradeMode: savepoint
+    allowNonRestoredState: true
+    state: running
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-ui-nodeport
+  namespace: fraud-detection
+spec:
+  type: NodePort
+  selector:
+    component: jobmanager
+    app: fraud-scoring-job
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30082

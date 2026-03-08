@@ -1,0 +1,95 @@
+---
+# MinIO Tenant — S3-compatible object storage
+# Managed by the MinIO Operator via the Tenant CRD.
+#
+# Creates two buckets:
+#   fraud-warehouse   — Iceberg table data + metadata
+#   fraud-checkpoints — Flink RocksDB checkpoints + savepoints
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-env-config
+  namespace: fraud-detection
+type: Opaque
+stringData:
+  # MinIO Operator v5+ requires credentials in this exact format
+  # inside a key called "config.env"
+  config.env: |
+    export MINIO_ROOT_USER="admin"
+    export MINIO_ROOT_PASSWORD="password123"
+
+---
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: fraud-minio
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  ## Use a real published release tag — the placeholder date tag doesn't exist
+  image: minio/minio:RELEASE.2024-03-15T01-07-19Z
+  imagePullPolicy: IfNotPresent
+
+  ## Reference the correctly formatted credentials secret
+  configuration:
+    name: minio-env-config
+
+  ## Single pool for local dev
+  pools:
+    - name: pool-0
+      servers: 1
+      volumesPerServer: 2
+      volumeClaimTemplate:
+        metadata:
+          name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+      resources:
+        requests:
+          cpu:    "500m"
+          memory: "512Mi"
+        limits:
+          cpu:    "1"
+          memory: "1Gi"
+      # nodeSelector removed — kind nodes have no custom labels,
+      # adding a nodeSelector causes pods to stay Pending forever
+
+  ## Buckets to create on first boot
+  buckets:
+    - name: fraud-warehouse
+    - name: fraud-checkpoints
+
+  ## Disable TLS for local dev simplicity
+  requestAutoCert: false
+
+  ## Expose MinIO console + S3 API
+  exposeServices:
+    console: true
+    minio:   true
+
+---
+# NodePort service so we can reach MinIO from localhost
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-nodeport
+  namespace: fraud-detection
+spec:
+  type: NodePort
+  selector:
+    v1.min.io/tenant: fraud-minio
+  ports:
+    - name: s3-api
+      port:       9000
+      targetPort: 9000
+      nodePort:   30000
+    - name: console
+      port:       9001
+      targetPort: 9001
+      nodePort:   30001

@@ -1,0 +1,229 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# Kafka Cluster — KRaft mode (no ZooKeeper)
+# Managed by Strimzi Operator v0.41.0
+#
+# Architecture change: ZooKeeper → KRaft
+# ───────────────────────────────────────
+# Traditional Strimzi uses ZooKeeper for cluster metadata (leader election,
+# controller election, topic/partition metadata). KRaft eliminates ZooKeeper
+# by embedding a Raft-based metadata log directly inside Kafka brokers.
+#
+# Why KRaft?
+#   - Removes the ZooKeeper operational dependency (separate StatefulSet,
+#     separate PVCs, separate monitoring, separate failure domain)
+#   - Faster controller failover (ms vs seconds)
+#   - Simpler scaling: one fewer distributed system to reason about
+#   - Required for Kafka 4.x and beyond (ZooKeeper mode deprecated in 3.x)
+#
+# KRaft with Strimzi requires:
+#   1. annotations on the Kafka CR:
+#        strimzi.io/node-pools: enabled   ← use KafkaNodePool CRDs
+#        strimzi.io/kraft: enabled         ← enable KRaft metadata mode
+#   2. STRIMZI_FEATURE_GATES=+UseKRaft,+KafkaNodePools on the operator
+#      (set in step-04-install-operators.sh)
+#   3. No spec.zookeeper section in the Kafka CR
+#   4. spec.kafka.metadataVersion matching the Kafka version
+#
+# Combined role (controller + broker):
+#   Each node acts as both a KRaft controller (participates in Raft quorum)
+#   AND a Kafka broker (serves producers and consumers). This is the
+#   recommended topology for development and small production clusters.
+#   For large production: separate controller-only and broker-only pools.
+#
+# Pod label compatibility:
+#   Pool name "kafka" → pods named "fraud-kafka-kafka-{id}"
+#   → label strimzi.io/name=fraud-kafka-kafka  (unchanged from ZooKeeper mode)
+#   All existing label selectors in step-06, step-09, step-11 continue to work.
+# ═══════════════════════════════════════════════════════════════════
+
+# ── KafkaNodePool: combined controller + broker nodes ──────────
+# In KRaft mode, roles are assigned per-pool. Combining controller and
+# broker in a single pool is valid and simplifies local dev: one PVC set,
+# one StatefulSet, one resource spec to manage.
+#
+# Production recommendation: split into a 3-node controller pool and a
+# separate broker pool so you can scale brokers independently.
+
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kafka
+  namespace: fraud-detection
+  labels:
+    strimzi.io/cluster: fraud-kafka
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  replicas: 3
+
+  # Combined role: each node participates in both the Raft quorum
+  # (controller) and serves client requests (broker).
+  roles:
+    - controller
+    - broker
+
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 15Gi
+        deleteClaim: false     # keep PVCs on delete so data survives redeploys
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu:    "500m"
+    limits:
+      memory: "2Gi"
+      cpu:    "1"
+
+---
+# ── Kafka CR — KRaft mode ──────────────────────────────────────
+# The Strimzi operator watches this resource and:
+#   - Creates the KafkaNodePool StatefulSet (replaces broker + ZK StatefulSets)
+#   - Manages rolling upgrades with zero downtime
+#   - Handles KRaft controller failover automatically
+#   - Exposes metrics to Prometheus via JMX exporter sidecar
+#   - Reconciles KafkaTopic + KafkaUser CRDs via entityOperator
+
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: fraud-kafka
+  namespace: fraud-detection
+  annotations:
+    # Enable KafkaNodePool-based topology (required for KRaft)
+    strimzi.io/node-pools: enabled
+    # Enable KRaft metadata mode (eliminates ZooKeeper)
+    strimzi.io/kraft: enabled
+  labels:
+    app.kubernetes.io/part-of: fraud-detection
+spec:
+  kafka:
+    version: 3.6.1
+
+    # metadataVersion tells Kafka which feature set to activate.
+    # Must be ≤ the Kafka version and incremented during rolling upgrades.
+    # 3.6-IV2 is the highest metadata version for Kafka 3.6.x.
+    metadataVersion: 3.6-IV2
+
+    # NOTE: replicas, storage, and resources are now defined in KafkaNodePool.
+    # They must NOT be specified here when KafkaNodePools are enabled.
+
+    listeners:
+      # Internal (pod-to-pod): all in-cluster services use this
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+
+      # External (NodePort): localhost access via kind port mapping
+      - name: external
+        port: 9094
+        type: nodeport
+        tls: false
+        configuration:
+          bootstrap:
+            nodePort: 30092
+          # Broker IDs 0–2 (matched to KafkaNodePool nodes).
+          # With combined controller+broker pool named "kafka", Strimzi
+          # assigns node IDs 0, 1, 2 — matching these entries.
+          brokers:
+            - broker: 0
+              nodePort: 30093
+            - broker: 1
+              nodePort: 30094
+            - broker: 2
+              nodePort: 30095
+
+    config:
+      # Replication — single-replica for local dev (no HA needed)
+      offsets.topic.replication.factor:         "1"
+      transaction.state.log.replication.factor: "1"
+      transaction.state.log.min.isr:            "1"
+      default.replication.factor:               "1"
+      min.insync.replicas:                      "1"
+
+      # Flink exactly-once transactions require longer timeout
+      transaction.max.timeout.ms:               "900000"   # 15 min
+
+      # Retention
+      log.retention.hours:                      "168"      # 7 days
+      log.retention.bytes:                      "10737418240"  # 10GB/partition
+      log.segment.bytes:                        "1073741824"   # 1GB segments
+
+      # Performance
+      num.network.threads:                      "3"
+      num.io.threads:                           "8"
+      socket.send.buffer.bytes:                 "102400"
+      socket.receive.buffer.bytes:              "102400"
+      socket.request.max.bytes:                 "104857600"
+
+      # Disable auto-creation — all topics managed via KafkaTopic CRDs
+      auto.create.topics.enable:                "false"
+
+    # JMX Prometheus metrics — scraped by Prometheus in the monitoring stack
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics-config
+          key: kafka-metrics-config.yml
+
+  # ZooKeeper section intentionally absent — KRaft mode does not use ZooKeeper.
+
+  entityOperator:
+    # Enables KafkaTopic + KafkaUser CRDs — the operator reconciles them.
+    # This still works identically in KRaft mode.
+    topicOperator:
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu:    "100m"
+    userOperator:
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu:    "100m"
+
+---
+# Kafka JMX metrics config — tells the JMX exporter which MBeans to scrape
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-metrics-config
+  namespace: fraud-detection
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      # Broker-level throughput metrics
+      - pattern: kafka.server<type=BrokerTopicMetrics, name=(BytesInPerSec|BytesOutPerSec|MessagesInPerSec)><>OneMinuteRate
+        name: kafka_server_brokertopicmetrics_$1_rate
+        type: GAUGE
+
+      # Consumer lag
+      - pattern: kafka.server<type=FetcherLagMetrics, name=ConsumerLag, clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_fetcherlagmetrics_consumerlag
+        labels:
+          clientId: "$1"
+          topic: "$2"
+          partition: "$3"
+        type: GAUGE
+
+      # Log end offset — used to compute absolute consumer lag
+      - pattern: kafka.log<type=Log, name=LogEndOffset, topic=(.+), partition=(.*)><>Value
+        name: kafka_log_log_end_offset
+        labels:
+          topic: "$1"
+          partition: "$2"
+        type: GAUGE
+
+      # KRaft controller metrics (replaces ZooKeeper session metrics)
+      - pattern: kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value
+        name: kafka_controller_active_controller_count
+        type: GAUGE
+      - pattern: kafka.controller<type=KafkaController, name=OfflinePartitionsCount><>Value
+        name: kafka_controller_offline_partitions_count
+        type: GAUGE
