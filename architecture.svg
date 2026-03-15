@@ -1,117 +1,329 @@
-<svg width="860" viewBox="0 0 860 760" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace">
+<svg width="1000" height="862" viewBox="0 0 1000 862" xmlns="http://www.w3.org/2000/svg" font-family="'SF Pro Display','Segoe UI',system-ui,sans-serif">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M2 1L8 5L2 9" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Drop shadow -->
+    <filter id="sh" x="-12%" y="-12%" width="124%" height="136%">
+      <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <!-- Soft inner glow for Flink box -->
+    <filter id="glow" x="-5%" y="-5%" width="110%" height="120%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feComposite in="SourceGraphic" in2="b" operator="over"/>
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="g-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#080e1c"/>
+      <stop offset="100%" stop-color="#060b17"/>
+    </linearGradient>
+    <linearGradient id="g-producer" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e1147"/>
+      <stop offset="100%" stop-color="#130b30"/>
+    </linearGradient>
+    <linearGradient id="g-kafka" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e1300"/>
+      <stop offset="100%" stop-color="#120c00"/>
+    </linearGradient>
+    <linearGradient id="g-flink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#021e1c"/>
+      <stop offset="100%" stop-color="#011413"/>
+    </linearGradient>
+    <linearGradient id="g-storage" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#071428"/>
+      <stop offset="100%" stop-color="#040d1c"/>
+    </linearGradient>
+    <linearGradient id="g-obs" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0e131e"/>
+      <stop offset="100%" stop-color="#090d15"/>
+    </linearGradient>
+    <linearGradient id="g-dead" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0e1016"/>
+      <stop offset="100%" stop-color="#080a10"/>
+    </linearGradient>
+
+    <!-- Arrow markers -->
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M1.5 1L8.5 5L1.5 9" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </marker>
-    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M2 1L8 5L2 9" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <marker id="arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M1.5 1L8.5 5L1.5 9" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M1.5 1L8.5 5L1.5 9" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M1.5 1L8.5 5L1.5 9" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M1.5 1L8.5 5L1.5 9" fill="none" stroke="#14b8a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </marker>
   </defs>
 
-  <!-- Background -->
-  <rect width="860" height="760" fill="#0f172a" rx="12"/>
+  <!-- ── Background ─────────────────────────────────────── -->
+  <rect width="1000" height="862" fill="url(#g-bg)"/>
+  <!-- dot grid -->
+  <pattern id="dots" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+    <circle cx="14" cy="14" r="0.7" fill="#141c2e"/>
+  </pattern>
+  <rect width="1000" height="862" fill="url(#dots)"/>
 
-  <!-- Cluster border -->
-  <rect x="20" y="20" width="820" height="720" rx="12" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="8 4"/>
-  <rect x="20" y="20" width="222" height="26" rx="4" fill="#1e293b"/>
-  <text x="32" y="37" font-size="12" fill="#94a3b8" font-weight="600" letter-spacing="0.5">KIND KUBERNETES CLUSTER</text>
-  <text x="32" y="56" font-size="11" fill="#475569">fraud-detection namespace</text>
+  <!-- ── Kubernetes Cluster Boundary ───────────────────── -->
+  <rect x="16" y="16" width="968" height="830" rx="14" fill="none" stroke="#1a3356" stroke-width="1.5" stroke-dasharray="10 5"/>
+  <!-- badge -->
+  <rect x="16" y="5" width="310" height="24" rx="5" fill="#0b1e38"/>
+  <text x="28" y="21" font-size="10.5" fill="#3b82f6" font-weight="700" letter-spacing="1">☸  KIND KUBERNETES CLUSTER</text>
+  <text x="334" y="21" font-size="10.5" fill="#334155">fraud-detection namespace</text>
 
-  <!-- ─── PRODUCER ─── -->
-  <rect x="300" y="72" width="260" height="62" rx="8" fill="#1e1b4b" stroke="#6d28d9" stroke-width="1.5"/>
-  <text x="430" y="98" font-size="13" fill="#c4b5fd" font-weight="700" text-anchor="middle">Transaction Producer</text>
-  <text x="430" y="116" font-size="11" fill="#8b5cf6" text-anchor="middle">20 TPS · 200 accounts · 2% base fraud rate</text>
+  <!-- ══════════════════════════════════════════════════════
+       1. TRANSACTION PRODUCER
+  ══════════════════════════════════════════════════════ -->
+  <rect x="335" y="42" width="330" height="76" rx="10" fill="url(#g-producer)" stroke="#7c3aed" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="335" y="42" width="4" height="76" rx="2" fill="#7c3aed"/>
+  <!-- icon -->
+  <circle cx="364" cy="80" r="15" fill="#1e0d4e" stroke="#7c3aed" stroke-width="1.2"/>
+  <text x="364" y="85" font-size="14" fill="#a78bfa" text-anchor="middle">⚡</text>
+  <!-- text -->
+  <text x="388" y="66" font-size="13" fill="#c4b5fd" font-weight="700">Transaction Producer</text>
+  <text x="388" y="84" font-size="10.5" fill="#8b5cf6">20 TPS · 200 simulated accounts</text>
+  <text x="388" y="100" font-size="10.5" fill="#8b5cf6">2% base fraud rate · periodic burst injection</text>
 
-  <!-- Producer → Kafka -->
-  <line x1="430" y1="134" x2="430" y2="166" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Arrow 1: Producer → Kafka -->
+  <line x1="500" y1="118" x2="500" y2="149" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="508" y="124" width="150" height="16" rx="3" fill="#080e1c"/>
+  <text x="510" y="135" font-size="9" fill="#475569">raw payment events (JSON)</text>
 
-  <!-- ─── KAFKA RAW ─── -->
-  <rect x="300" y="170" width="260" height="62" rx="8" fill="#1c1917" stroke="#d97706" stroke-width="1.5"/>
-  <text x="430" y="196" font-size="13" fill="#fcd34d" font-weight="700" text-anchor="middle">Apache Kafka</text>
-  <text x="430" y="214" font-size="11" fill="#f59e0b" text-anchor="middle">topic: raw-transactions</text>
+  <!-- ══════════════════════════════════════════════════════
+       2. KAFKA: raw-transactions
+  ══════════════════════════════════════════════════════ -->
+  <rect x="315" y="152" width="370" height="72" rx="10" fill="url(#g-kafka)" stroke="#d97706" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="315" y="152" width="4" height="72" rx="2" fill="#d97706"/>
+  <circle cx="344" cy="188" r="15" fill="#1e1000" stroke="#d97706" stroke-width="1.2"/>
+  <text x="344" y="193" font-size="13" fill="#fbbf24" text-anchor="middle">⬡</text>
+  <text x="368" y="174" font-size="12.5" fill="#fcd34d" font-weight="700">Apache Kafka  ·  Strimzi Operator</text>
+  <text x="368" y="192" font-size="10.5" fill="#f59e0b">Topic: raw-transactions</text>
+  <text x="368" y="209" font-size="9.5" fill="#78716c">input for KafkaSource · Kafka 3.4</text>
 
-  <!-- Kafka → Flink -->
-  <line x1="430" y1="232" x2="430" y2="264" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Arrow 2: Kafka → Flink -->
+  <line x1="500" y1="224" x2="500" y2="254" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="508" y="230" width="75" height="16" rx="3" fill="#080e1c"/>
+  <text x="510" y="241" font-size="9" fill="#475569">KafkaSource</text>
 
-  <!-- ─── FLINK ─── -->
-  <rect x="80" y="268" width="700" height="84" rx="8" fill="#042f2e" stroke="#0d9488" stroke-width="1.5"/>
-  <text x="430" y="294" font-size="13" fill="#5eead4" font-weight="700" text-anchor="middle">Apache Flink 1.18  ·  JobManager + TaskManager</text>
-  <text x="430" y="312" font-size="11" fill="#2dd4bf" text-anchor="middle">KafkaSource  →  WatermarkStrategy  →  keyBy(account_id)  →  FraudDetector (RocksDB)</text>
-  <text x="430" y="330" font-size="11" fill="#2dd4bf" text-anchor="middle">→  ParseScoredJson  →  fraud_input_view  →  StatementSet.execute()</text>
+  <!-- ══════════════════════════════════════════════════════
+       3. APACHE FLINK PROCESSING ENGINE
+  ══════════════════════════════════════════════════════ -->
+  <rect x="36" y="257" width="928" height="108" rx="12" fill="url(#g-flink)" stroke="#0d9488" stroke-width="1.6" filter="url(#sh)"/>
+  <rect x="36" y="257" width="4" height="108" rx="2" fill="#0d9488"/>
 
-  <!-- Flink fan-out labels -->
-  <text x="185" y="376" font-size="10" fill="#475569" text-anchor="middle">all records</text>
-  <text x="430" y="376" font-size="10" fill="#475569" text-anchor="middle">fraud only</text>
-  <text x="685" y="376" font-size="10" fill="#475569" text-anchor="middle">all records · S3FileIO</text>
+  <!-- Flink header -->
+  <circle cx="62" cy="280" r="14" fill="#021e1c" stroke="#0d9488" stroke-width="1.2"/>
+  <text x="62" y="285" font-size="13" fill="#2dd4bf" text-anchor="middle">▶</text>
+  <text x="84" y="274" font-size="12.5" fill="#5eead4" font-weight="700">Apache Flink 1.18  ·  PyFlink</text>
+  <text x="84" y="291" font-size="10" fill="#2dd4bf">JobManager + TaskManager  ·  RocksDB State Backend  ·  incremental checkpoints to S3</text>
 
-  <!-- Flink → enriched -->
-  <path d="M 240 352 L 240 390 L 152 390 L 152 418" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <!-- Flink → fraud-alerts -->
-  <line x1="430" y1="352" x2="430" y2="418" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <!-- Flink → Iceberg -->
-  <path d="M 620 352 L 620 390 L 710 390 L 710 418" fill="none" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <!-- AT_LEAST_ONCE badge -->
+  <rect x="820" y="258" width="136" height="18" rx="4" fill="#031e1c" stroke="#0d9488" stroke-width="0.8"/>
+  <text x="888" y="271" font-size="8.5" fill="#14b8a6" text-anchor="middle" letter-spacing="0.4">AT_LEAST_ONCE · sink.delivery-guarantee</text>
 
-  <!-- ─── SINKS ROW ─── -->
-  <!-- Sink: enriched-transactions -->
-  <rect x="52" y="422" width="200" height="62" rx="8" fill="#1c1917" stroke="#d97706" stroke-width="1.5"/>
-  <text x="152" y="448" font-size="12" fill="#fcd34d" font-weight="700" text-anchor="middle">Kafka</text>
-  <text x="152" y="466" font-size="10" fill="#f59e0b" text-anchor="middle">enriched-transactions</text>
-  <text x="152" y="480" font-size="10" fill="#78716c" text-anchor="middle">AT_LEAST_ONCE</text>
+  <!-- Pipeline step pills  y=300 h=48 -->
+  <!-- Step 1: KafkaSource  x=44 -->
+  <rect x="44" y="300" width="118" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="103" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">KafkaSource</text>
+  <text x="103" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">consumer group</text>
 
-  <!-- Sink: fraud-alerts -->
-  <rect x="330" y="422" width="200" height="62" rx="8" fill="#1c1917" stroke="#d97706" stroke-width="1.5"/>
-  <text x="430" y="448" font-size="12" fill="#fcd34d" font-weight="700" text-anchor="middle">Kafka</text>
-  <text x="430" y="466" font-size="10" fill="#f59e0b" text-anchor="middle">fraud-alerts</text>
-  <text x="430" y="480" font-size="10" fill="#78716c" text-anchor="middle">AT_LEAST_ONCE</text>
+  <!-- connector line -->
+  <line x1="162" y1="324" x2="177" y2="324" stroke="#14b8a6" stroke-width="1.1" marker-end="url(#arr-teal)"/>
 
-  <!-- Sink: Iceberg REST Catalog -->
-  <rect x="608" y="422" width="212" height="62" rx="8" fill="#0c1a2e" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="714" y="448" font-size="12" fill="#93c5fd" font-weight="700" text-anchor="middle">Iceberg REST Catalog</text>
-  <text x="714" y="466" font-size="10" fill="#60a5fa" text-anchor="middle">tabulario/iceberg-rest</text>
-  <text x="714" y="480" font-size="10" fill="#1d4ed8" text-anchor="middle">fraud_catalog.fraud_db</text>
+  <!-- Step 2: WatermarkStrategy  x=179 -->
+  <rect x="179" y="300" width="130" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="244" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">WatermarkStrategy</text>
+  <text x="244" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">10s out-of-orderness</text>
 
-  <!-- Iceberg → MinIO -->
-  <line x1="714" y1="484" x2="714" y2="536" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="309" y1="324" x2="324" y2="324" stroke="#14b8a6" stroke-width="1.1" marker-end="url(#arr-teal)"/>
 
-  <!-- ─── MINIO ─── -->
-  <rect x="608" y="540" width="212" height="82" rx="8" fill="#0c1a2e" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="714" y="563" font-size="12" fill="#93c5fd" font-weight="700" text-anchor="middle">MinIO  (S3-compatible)</text>
-  <text x="714" y="581" font-size="10" fill="#60a5fa" text-anchor="middle">fraud-warehouse/iceberg/</text>
-  <text x="714" y="596" font-size="10" fill="#60a5fa" text-anchor="middle">  fraud_db/fraud_scores/</text>
-  <text x="714" y="611" font-size="10" fill="#60a5fa" text-anchor="middle">fraud-checkpoints/flink/</text>
+  <!-- Step 3: keyBy  x=326 -->
+  <rect x="326" y="300" width="125" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="388" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">keyBy(account_id)</text>
+  <text x="388" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">partitioned stream</text>
 
-  <!-- MinIO → Trino -->
-  <line x1="714" y1="622" x2="714" y2="654" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="451" y1="324" x2="466" y2="324" stroke="#14b8a6" stroke-width="1.1" marker-end="url(#arr-teal)"/>
 
-  <!-- ─── TRINO ─── -->
-  <rect x="608" y="658" width="212" height="62" rx="8" fill="#0c1a2e" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="714" y="682" font-size="12" fill="#93c5fd" font-weight="700" text-anchor="middle">Trino</text>
-  <text x="714" y="700" font-size="10" fill="#60a5fa" text-anchor="middle">Iceberg connector</text>
-  <text x="714" y="714" font-size="10" fill="#1d4ed8" text-anchor="middle">SELECT * FROM fraud_scores</text>
+  <!-- Step 4: FraudDetector  x=468 -->
+  <rect x="468" y="300" width="140" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="538" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">FraudDetector</text>
+  <text x="538" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">KeyedProcessFunction · RocksDB</text>
 
-  <!-- ─── OBSERVABILITY ─── -->
-  <rect x="52" y="548" width="526" height="72" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <text x="315" y="572" font-size="12" fill="#9ca3af" font-weight="700" text-anchor="middle">Observability Stack</text>
-  <text x="315" y="591" font-size="11" fill="#6b7280" text-anchor="middle">Prometheus  ·  Grafana  ·  Flink Web UI  ·  Kafka UI  ·  MinIO Console  ·  Schema Registry</text>
-  <text x="315" y="609" font-size="10" fill="#4b5563" text-anchor="middle">:9090  ·  :3000  ·  :8082  ·  :8080  ·  :9001</text>
+  <line x1="608" y1="324" x2="623" y2="324" stroke="#14b8a6" stroke-width="1.1" marker-end="url(#arr-teal)"/>
 
-  <!-- Dead-letter sink (small badge) -->
-  <rect x="52" y="666" width="180" height="54" rx="8" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
-  <text x="142" y="688" font-size="12" fill="#a8a29e" font-weight="700" text-anchor="middle">Kafka</text>
-  <text x="142" y="706" font-size="10" fill="#78716c" text-anchor="middle">dead-letter  ·  error handler</text>
+  <!-- Step 5: ParseScoredJson  x=625 -->
+  <rect x="625" y="300" width="130" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="690" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">ParseScoredJson</text>
+  <text x="690" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">→ fraud_input_view</text>
 
-  <!-- Legend -->
-  <rect x="278" y="666" width="300" height="54" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
-  <rect x="290" y="682" width="10" height="10" rx="2" fill="#1e1b4b" stroke="#6d28d9" stroke-width="1.5"/>
-  <text x="305" y="692" font-size="10" fill="#9ca3af">Ingestion</text>
-  <rect x="358" y="682" width="10" height="10" rx="2" fill="#1c1917" stroke="#d97706" stroke-width="1.5"/>
-  <text x="373" y="692" font-size="10" fill="#9ca3af">Kafka</text>
-  <rect x="420" y="682" width="10" height="10" rx="2" fill="#042f2e" stroke="#0d9488" stroke-width="1.5"/>
-  <text x="435" y="692" font-size="10" fill="#9ca3af">Flink</text>
-  <rect x="480" y="682" width="10" height="10" rx="2" fill="#0c1a2e" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="495" y="692" font-size="10" fill="#9ca3af">Storage / Analytics</text>
-  <line x1="290" y1="710" x2="316" y2="710" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="320" y="714" font-size="10" fill="#9ca3af">Data flow</text>
-  <line x1="400" y1="710" x2="426" y2="710" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="430" y="714" font-size="10" fill="#9ca3af">Storage path</text>
+  <line x1="755" y1="324" x2="770" y2="324" stroke="#14b8a6" stroke-width="1.1" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 6: StatementSet  x=772 -->
+  <rect x="772" y="300" width="182" height="48" rx="7" fill="#032a28" stroke="#14b8a6" stroke-width="1"/>
+  <text x="863" y="320" font-size="10" fill="#99f6e4" text-anchor="middle" font-weight="600">StatementSet.execute()</text>
+  <text x="863" y="337" font-size="8.5" fill="#5eead4" text-anchor="middle">fan-out to 3 sinks</text>
+
+  <!-- ── Fan-out arrows from Flink (bottom y=365) ── -->
+  <!-- → enriched-transactions (center ~x=160) -->
+  <path d="M 180 365 L 180 402 L 160 402 L 160 430" fill="none" stroke="#f59e0b" stroke-width="1.6" marker-end="url(#arr-amber)"/>
+  <rect x="46" y="393" width="86" height="14" rx="3" fill="#080e1c"/>
+  <text x="50" y="403" font-size="8.5" fill="#a16207">all scored records</text>
+
+  <!-- → fraud-alerts (center ~x=405) -->
+  <path d="M 430 365 L 430 402 L 405 402 L 405 430" fill="none" stroke="#ef4444" stroke-width="1.6" marker-end="url(#arr-red)"/>
+  <rect x="435" y="393" width="100" height="14" rx="3" fill="#080e1c"/>
+  <text x="437" y="403" font-size="8.5" fill="#b91c1c">fraud_detected = true</text>
+
+  <!-- → Iceberg (center ~x=840) -->
+  <path d="M 820 365 L 820 402 L 840 402 L 840 430" fill="none" stroke="#3b82f6" stroke-width="1.6" marker-end="url(#arr-blue)"/>
+  <rect x="825" y="393" width="50" height="14" rx="3" fill="#080e1c"/>
+  <text x="827" y="403" font-size="8.5" fill="#1d4ed8">S3FileIO</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       4a. SINK: enriched-transactions
+  ══════════════════════════════════════════════════════ -->
+  <rect x="44" y="432" width="232" height="84" rx="10" fill="url(#g-kafka)" stroke="#d97706" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="44" y="432" width="4" height="84" rx="2" fill="#d97706"/>
+  <text x="164" y="455" font-size="12" fill="#fcd34d" font-weight="700" text-anchor="middle">Kafka  ·  Strimzi</text>
+  <text x="164" y="473" font-size="10.5" fill="#f59e0b" text-anchor="middle">enriched-transactions</text>
+  <text x="164" y="490" font-size="9.5" fill="#78716c" text-anchor="middle">All scored records · JSON</text>
+  <rect x="76" y="497" width="136" height="14" rx="4" fill="#16100050" stroke="#44330070" stroke-width="0.8"/>
+  <text x="144" y="508" font-size="8.5" fill="#a16207" text-anchor="middle">downstream consumers</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       4b. SINK: fraud-alerts
+  ══════════════════════════════════════════════════════ -->
+  <rect x="302" y="432" width="207" height="84" rx="10" fill="#100808" stroke="#ef4444" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="302" y="432" width="4" height="84" rx="2" fill="#ef4444"/>
+  <text x="409" y="455" font-size="12" fill="#fca5a5" font-weight="700" text-anchor="middle">Kafka  ·  Strimzi</text>
+  <text x="409" y="473" font-size="10.5" fill="#f87171" text-anchor="middle">fraud-alerts</text>
+  <text x="409" y="490" font-size="9.5" fill="#78716c" text-anchor="middle">Fraud-only · JSON</text>
+  <rect x="338" y="497" width="136" height="14" rx="4" fill="#1a000050" stroke="#7f1d1d70" stroke-width="0.8"/>
+  <text x="406" y="508" font-size="8.5" fill="#ef4444" text-anchor="middle">alerting / incident response</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       4c. SINK: Iceberg REST Catalog
+  ══════════════════════════════════════════════════════ -->
+  <rect x="720" y="432" width="248" height="84" rx="10" fill="url(#g-storage)" stroke="#3b82f6" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="720" y="432" width="4" height="84" rx="2" fill="#3b82f6"/>
+  <text x="848" y="455" font-size="12" fill="#93c5fd" font-weight="700" text-anchor="middle">Iceberg REST Catalog</text>
+  <text x="848" y="473" font-size="10.5" fill="#60a5fa" text-anchor="middle">tabulario/iceberg-rest  ·  v1.5.2</text>
+  <text x="848" y="490" font-size="9.5" fill="#1e40af" text-anchor="middle">fraud_catalog.fraud_db</text>
+  <rect x="750" y="497" width="136" height="14" rx="4" fill="#07101e50" stroke="#1e40af70" stroke-width="0.8"/>
+  <text x="818" y="508" font-size="8.5" fill="#3b82f6" text-anchor="middle">snapshot isolation · time-travel</text>
+
+  <!-- Arrow: Iceberg → MinIO -->
+  <line x1="844" y1="516" x2="844" y2="548" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <rect x="850" y="526" width="100" height="14" rx="3" fill="#080e1c"/>
+  <text x="852" y="536" font-size="8.5" fill="#1d4ed8">Parquet + metadata</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       5. MINIO (Object Storage)
+  ══════════════════════════════════════════════════════ -->
+  <rect x="720" y="550" width="248" height="92" rx="10" fill="url(#g-storage)" stroke="#3b82f6" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="720" y="550" width="4" height="92" rx="2" fill="#3b82f6"/>
+  <circle cx="748" cy="580" r="14" fill="#071428" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="748" y="585" font-size="13" fill="#60a5fa" text-anchor="middle">🗄</text>
+  <text x="771" y="573" font-size="12" fill="#93c5fd" font-weight="700">MinIO  (S3-compatible)</text>
+  <text x="771" y="590" font-size="10" fill="#60a5fa">fraud-warehouse/iceberg/</text>
+  <text x="771" y="606" font-size="10" fill="#60a5fa">  └ fraud_db/fraud_scores/</text>
+  <text x="771" y="622" font-size="10" fill="#60a5fa">fraud-checkpoints/flink/</text>
+  <rect x="750" y="628" width="120" height="8" rx="3" fill="#07101e"/>
+  <text x="810" y="635" font-size="7.5" fill="#1d4ed8" text-anchor="middle">S3AFileSystem · S3FileIO</text>
+
+  <!-- Arrow: MinIO → Trino -->
+  <line x1="844" y1="642" x2="844" y2="672" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+  <!-- ══════════════════════════════════════════════════════
+       6. TRINO (SQL Query Engine)
+  ══════════════════════════════════════════════════════ -->
+  <rect x="720" y="674" width="248" height="74" rx="10" fill="url(#g-storage)" stroke="#3b82f6" stroke-width="1.5" filter="url(#sh)"/>
+  <rect x="720" y="674" width="4" height="74" rx="2" fill="#3b82f6"/>
+  <circle cx="748" cy="711" r="14" fill="#071428" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="748" y="716" font-size="13" fill="#60a5fa" text-anchor="middle">◈</text>
+  <text x="771" y="703" font-size="12" fill="#93c5fd" font-weight="700">Trino</text>
+  <text x="771" y="720" font-size="10" fill="#60a5fa">Iceberg connector · SQL engine</text>
+  <text x="771" y="737" font-size="9" fill="#1d4ed8" font-style="italic">SELECT * FROM fraud_db.fraud_scores</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       7. OBSERVABILITY STACK
+  ══════════════════════════════════════════════════════ -->
+  <rect x="44" y="550" width="646" height="92" rx="10" fill="url(#g-obs)" stroke="#374151" stroke-width="1.2" stroke-dasharray="6 3" filter="url(#sh)"/>
+  <text x="367" y="573" font-size="12" fill="#9ca3af" font-weight="700" text-anchor="middle">Observability Stack</text>
+
+  <!-- 5 tool pills -->
+  <rect x="56"  y="582" width="108" height="30" rx="6" fill="#0d1117" stroke="#4b5563" stroke-width="1"/>
+  <text x="110" y="595" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="600">Prometheus</text>
+  <text x="110" y="608" font-size="8.5" fill="#4b5563" text-anchor="middle">:9090 · 22 targets</text>
+
+  <rect x="174" y="582" width="100" height="30" rx="6" fill="#0d1117" stroke="#4b5563" stroke-width="1"/>
+  <text x="224" y="595" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="600">Grafana</text>
+  <text x="224" y="608" font-size="8.5" fill="#4b5563" text-anchor="middle">:3000  admin/admin</text>
+
+  <rect x="284" y="582" width="105" height="30" rx="6" fill="#0d1117" stroke="#4b5563" stroke-width="1"/>
+  <text x="336" y="595" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="600">Flink Web UI</text>
+  <text x="336" y="608" font-size="8.5" fill="#4b5563" text-anchor="middle">:8082 · job graph</text>
+
+  <rect x="399" y="582" width="95" height="30" rx="6" fill="#0d1117" stroke="#4b5563" stroke-width="1"/>
+  <text x="446" y="595" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="600">Kafka UI</text>
+  <text x="446" y="608" font-size="8.5" fill="#4b5563" text-anchor="middle">:8080 · lag monitor</text>
+
+  <rect x="504" y="582" width="116" height="30" rx="6" fill="#0d1117" stroke="#4b5563" stroke-width="1"/>
+  <text x="562" y="595" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="600">MinIO Console</text>
+  <text x="562" y="608" font-size="8.5" fill="#4b5563" text-anchor="middle">:9001  admin/•••</text>
+
+  <!-- sub-line -->
+  <text x="367" y="637" font-size="9" fill="#374151" text-anchor="middle">Schema Registry  ·  PrometheusReporter :9249  ·  Trino UI :8083</text>
+
+  <!-- ══════════════════════════════════════════════════════
+       8. DEAD-LETTER TOPIC
+  ══════════════════════════════════════════════════════ -->
+  <rect x="44" y="674" width="210" height="64" rx="10" fill="url(#g-dead)" stroke="#374151" stroke-width="1" filter="url(#sh)"/>
+  <rect x="44" y="674" width="3" height="64" rx="2" fill="#4b5563"/>
+  <text x="153" y="696" font-size="11.5" fill="#6b7280" font-weight="600" text-anchor="middle">Kafka</text>
+  <text x="153" y="713" font-size="10" fill="#4b5563" text-anchor="middle">dead-letter</text>
+  <text x="153" y="729" font-size="9" fill="#374151" text-anchor="middle">error handler · 0 msgs expected</text>
+
+  <!-- dashed line: Flink → dead-letter (error path) -->
+  <path d="M 103 365 L 103 660 L 103 674" fill="none" stroke="#374151" stroke-width="1.1" stroke-dasharray="5 3" marker-end="url(#arr)"/>
+
+  <!-- ══════════════════════════════════════════════════════
+       9. LEGEND
+  ══════════════════════════════════════════════════════ -->
+  <rect x="275" y="678" width="420" height="60" rx="8" fill="#060a13" stroke="#1e293b" stroke-width="1"/>
+  <text x="485" y="696" font-size="9.5" fill="#334155" text-anchor="middle" font-weight="700" letter-spacing="0.8">LEGEND</text>
+
+  <!-- swatches row 1 -->
+  <rect x="288" y="703" width="10" height="10" rx="2" fill="#1e1147" stroke="#7c3aed" stroke-width="1.2"/>
+  <text x="303" y="712" font-size="8.5" fill="#94a3b8">Ingestion</text>
+
+  <rect x="352" y="703" width="10" height="10" rx="2" fill="#1e1300" stroke="#d97706" stroke-width="1.2"/>
+  <text x="367" y="712" font-size="8.5" fill="#94a3b8">Kafka</text>
+
+  <rect x="406" y="703" width="10" height="10" rx="2" fill="#021e1c" stroke="#0d9488" stroke-width="1.2"/>
+  <text x="421" y="712" font-size="8.5" fill="#94a3b8">Flink</text>
+
+  <rect x="460" y="703" width="10" height="10" rx="2" fill="#071428" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="475" y="712" font-size="8.5" fill="#94a3b8">Storage / Analytics</text>
+
+  <rect x="560" y="703" width="10" height="10" rx="2" fill="#0e131e" stroke="#374151" stroke-width="1.2"/>
+  <text x="575" y="712" font-size="8.5" fill="#94a3b8">Observability</text>
+
+  <!-- arrow legend row 2 -->
+  <line x1="288" y1="727" x2="316" y2="727" stroke="#64748b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="322" y="731" font-size="8.5" fill="#64748b">Data flow</text>
+
+  <line x1="380" y1="727" x2="408" y2="727" stroke="#3b82f6" stroke-width="1.4" marker-end="url(#arr-blue)"/>
+  <text x="414" y="731" font-size="8.5" fill="#64748b">Storage path</text>
+
+  <line x1="475" y1="727" x2="503" y2="727" stroke="#ef4444" stroke-width="1.4" marker-end="url(#arr-red)"/>
+  <text x="509" y="731" font-size="8.5" fill="#64748b">Fraud path</text>
+
+  <line x1="560" y1="727" x2="588" y2="727" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#arr)"/>
+  <text x="594" y="731" font-size="8.5" fill="#64748b">Error path</text>
+
+  <!-- footer -->
+  <text x="984" y="854" font-size="8.5" fill="#1e293b" text-anchor="end">Real-Time Fraud Detection Pipeline · Apache Flink 1.18 + Kafka (Strimzi) + Iceberg 1.5.2 + MinIO + Trino · Kind Kubernetes</text>
 </svg>
