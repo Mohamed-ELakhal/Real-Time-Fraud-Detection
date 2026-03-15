@@ -45,75 +45,60 @@ A full end-to-end validation suite (22 checks) verifies the pipeline health afte
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          Kind Kubernetes Cluster                             │
-│                         (fraud-detection namespace)                          │
-│                                                                              │
-│  ┌──────────────────┐                                                        │
-│  │  Transaction     │  20 TPS · 200 accounts · 2% base fraud rate           │
-│  │  Producer        │─────────────────────────────────────────┐             │
-│  │  (producer/)     │                                         │             │
-│  └──────────────────┘                                         ▼             │
-│                                                    ┌─────────────────────┐  │
-│                                                    │ Kafka               │  │
-│                                                    │ [raw-transactions]  │  │
-│                                                    └──────────┬──────────┘  │
-│                                                               │             │
-│                                                               ▼             │
-│                                           ┌──────────────────────────────┐  │
-│                                           │      Apache Flink 1.18       │  │
-│                                           │   (JobManager + TaskManager) │  │
-│                                           │                              │  │
-│                                           │  KafkaSource                 │  │
-│                                           │   → WatermarkStrategy        │  │
-│                                           │   → keyBy(account_id)        │  │
-│                                           │   → FraudDetector            │  │
-│                                           │     (stateful, RocksDB)      │  │
-│                                           │   → ParseScoredJson          │  │
-│                                           │   → fraud_input_view         │  │
-│                                           │                              │  │
-│                                           │   StatementSet.execute()     │  │
-│                                           └───┬──────────────┬───────────┘  │
-│                  ┌────────────────────────────┤              │              │
-│                  │                            │              │              │
-│                  ▼                            ▼              ▼              │
-│  ┌───────────────────────┐  ┌────────────────────┐  ┌───────────────────┐  │
-│  │ Kafka                 │  │ Kafka              │  │ Iceberg REST      │  │
-│  │ [enriched-            │  │ [fraud-alerts]     │  │ Catalog           │  │
-│  │  transactions]        │  │ fraud only         │  │ (tabulario/       │  │
-│  │ all records           │  │ (AT_LEAST_ONCE)    │  │  iceberg-rest)    │  │
-│  │ (AT_LEAST_ONCE)       │  └────────────────────┘  └────────┬──────────┘  │
-│  └───────────────────────┘                                   │ S3FileIO    │
-│                                                               ▼             │
-│                                                    ┌─────────────────────┐  │
-│                                                    │ MinIO               │  │
-│                                                    │ (S3-compatible)     │  │
-│                                                    │                     │  │
-│                                                    │ fraud-warehouse/    │  │
-│                                                    │  iceberg/           │  │
-│                                                    │   fraud_db/         │  │
-│                                                    │    fraud_scores/    │  │
-│                                                    │                     │  │
-│                                                    │ fraud-checkpoints/  │  │
-│                                                    │  flink/ (RocksDB)   │  │
-│                                                    └──────────┬──────────┘  │
-│                                                               │             │
-│                                                               ▼             │
-│                                                    ┌─────────────────────┐  │
-│                                                    │ Trino               │  │
-│                                                    │ (Iceberg connector) │  │
-│                                                    │                     │  │
-│                                                    │ SELECT * FROM       │  │
-│                                                    │  iceberg.fraud_db   │  │
-│                                                    │  .fraud_scores      │  │
-│                                                    └─────────────────────┘  │
-│                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                       Observability Stack                            │   │
-│  │  Prometheus · Grafana · Kafka UI · Schema Registry · MinIO Console  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────────────┘
+> All components run inside a local Kind Kubernetes cluster under the `fraud-detection` namespace.
+
+```mermaid
+flowchart TD
+    subgraph K8S["☸ Kind Kubernetes Cluster — fraud-detection namespace"]
+        direction TB
+
+        Producer["**Transaction Producer**\n20 TPS · 200 accounts · 2% base fraud rate"]
+
+        subgraph Kafka_In["Kafka (Strimzi)"]
+            RT["Topic: raw-transactions"]
+        end
+
+        subgraph Flink["Apache Flink 1.18 — JobManager + TaskManager"]
+            direction TB
+            F1["KafkaSource"]
+            F2["WatermarkStrategy (10s out-of-orderness)"]
+            F3["keyBy(account_id)"]
+            F4["FraudDetector\n(KeyedProcessFunction · RocksDB state)"]
+            F5["ParseScoredJson → fraud_input_view"]
+            F6["StatementSet.execute()"]
+            F1 --> F2 --> F3 --> F4 --> F5 --> F6
+        end
+
+        subgraph Sinks["Sinks  —  AT_LEAST_ONCE delivery"]
+            direction LR
+            ET["Kafka\nenriched-transactions\n(all records)"]
+            FA["Kafka\nfraud-alerts\n(fraud only)"]
+            IC["Iceberg REST Catalog\ntabulario/iceberg-rest"]
+        end
+
+        subgraph Storage["Object Storage"]
+            MinIO["MinIO  (S3-compatible)\nfraud-warehouse/iceberg/\nfraud-checkpoints/flink/"]
+        end
+
+        Trino["Trino\nIceberg connector\nSELECT * FROM fraud_db.fraud_scores"]
+
+        subgraph Observability["Observability Stack"]
+            direction LR
+            OB1["Prometheus"]
+            OB2["Grafana"]
+            OB3["Kafka UI"]
+            OB4["Schema Registry"]
+            OB5["MinIO Console"]
+        end
+
+        Producer -->|"raw payment events (JSON)"| RT
+        RT -->|"KafkaSource"| Flink
+        F6 -->|"all records"| ET
+        F6 -->|"fraud_detected = true"| FA
+        F6 -->|"S3FileIO"| IC
+        IC -->|"Parquet + metadata"| MinIO
+        MinIO --> Trino
+    end
 ```
 
 ---
